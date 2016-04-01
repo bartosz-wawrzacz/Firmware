@@ -69,6 +69,7 @@
 #include <mathlib/math/filter/LowPassFilter2p.hpp>
 
 #include <geo/geo.h>
+#include <terrain_estimation/terrain_estimator.h>
 #include <systemlib/perf_counter.h>
 #include <lib/ecl/validation/data_validator_group.h>
 #include "estimator_22states.h"
@@ -228,7 +229,7 @@ private:
     bool            _newDataMag;
     bool            _newRangeData;
 
-    int             _mavlink_fd;
+    orb_advert_t    _mavlink_log_pub;
 
     control::BlockParamFloat _mag_offset_x;
     control::BlockParamFloat _mag_offset_y;
@@ -277,6 +278,8 @@ private:
     }       _parameter_handles;     /**< handles for interesting parameters */
 
     AttPosEKF                   *_ekf;
+
+    TerrainEstimator            *_terrain_estimator;
 
     /* Low pass filter for attitude rates */
     math::LowPassFilter2p _LP_att_P;
@@ -353,7 +356,7 @@ private:
     *   Runs the sensor fusion step of the filter. The parameters determine which of the sensors
     *   are fused with each other
     **/
-    void updateSensorFusion(const bool fuseGPS, const bool fuseMag, const bool fuseRangeSensor, 
+    void updateSensorFusion(const bool fuseGPS, const bool fuseMag, const bool fuseRangeSensor,
             const bool fuseBaro, const bool fuseAirSpeed);
 
     /**

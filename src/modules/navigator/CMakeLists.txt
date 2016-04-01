@@ -44,12 +44,15 @@ px4_add_module(
 		mission.cpp
 		loiter.cpp
 		rtl.cpp
+		takeoff.cpp
+		land.cpp
 		mission_feasibility_checker.cpp
 		geofence.cpp
 		datalinkloss.cpp
 		rcloss.cpp
 		enginefailure.cpp
 		gpsfailure.cpp
+		follow_target.cpp
 	DEPENDS
 		platforms__common
 	)

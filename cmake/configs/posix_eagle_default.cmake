@@ -1,6 +1,15 @@
 include(posix/px4_impl_posix)
 
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/toolchains/Toolchain-arm-linux-gnueabihf.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/cmake_hexagon/qurt_app.cmake)
+
+set(CONFIG_SHMEM "1")
+
+# This definition allows to differentiate if this just the usual POSIX build
+# or if it is for the Snapdragon.
+add_definitions(
+	-D__PX4_POSIX_EAGLE
+	)
 
 set(config_module_list
 	drivers/device
@@ -9,10 +18,12 @@ set(config_module_list
 	drivers/rgbled
 	drivers/led
 	drivers/boards/sitl
+	drivers/qshell/posix
 
 	systemcmds/param
 	systemcmds/mixer
 	systemcmds/ver
+	systemcmds/topic_listener
 
 	modules/mavlink
 
@@ -26,6 +37,7 @@ set(config_module_list
 	modules/systemlib
 	modules/systemlib/mixer
 	modules/uORB
+	modules/muorb/krait
 	modules/sensors
 	modules/dataman
 	modules/sdlog2
@@ -35,12 +47,15 @@ set(config_module_list
 
 	lib/mathlib
 	lib/mathlib/math/filter
+	lib/conversion
+	lib/ecl
 	lib/geo
 	lib/geo_lookup
-	lib/conversion
+	lib/terrain_estimation
+	lib/runway_takeoff
+	lib/tailsitter_recovery
 
 	platforms/common
 	platforms/posix/px4_layer
 	platforms/posix/work_queue
 	)
-

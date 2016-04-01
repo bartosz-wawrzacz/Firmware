@@ -429,6 +429,7 @@ function(px4_os_add_flags)
 		)
 	set(added_definitions
 		-D__PX4_NUTTX
+		-D__DF_NUTTX
 		)
 	set(added_c_flags
 		-nodefaultlibs
@@ -458,8 +459,32 @@ function(px4_os_add_flags)
 			-mfpu=fpv4-sp-d16
 			-mfloat-abi=hard
 			)
+	elseif (${BOARD} STREQUAL "px4fmu-v4")
+		set(cpu_flags
+			-mcpu=cortex-m4
+			-mthumb
+			-march=armv7e-m
+			-mfpu=fpv4-sp-d16
+			-mfloat-abi=hard
+			)
+	elseif (${BOARD} STREQUAL "px4-stm32f4discovery")
+		set(cpu_flags
+			-mcpu=cortex-m4
+			-mthumb
+			-march=armv7e-m
+			-mfpu=fpv4-sp-d16
+			-mfloat-abi=hard
+			)
 	elseif (${BOARD} STREQUAL "aerocore")
 		set(cpu_flags
+			-mcpu=cortex-m4
+			-mthumb
+			-march=armv7e-m
+			-mfpu=fpv4-sp-d16
+			-mfloat-abi=hard
+			)
+	elseif (${BOARD} STREQUAL "mindpx-v2")
+			set(cpu_flags
 			-mcpu=cortex-m4
 			-mthumb
 			-march=armv7e-m
@@ -488,6 +513,8 @@ function(px4_os_add_flags)
 		set(${${var}} ${${${var}}} ${added_${lower_var}} PARENT_SCOPE)
 		#message(STATUS "nuttx: set(${${var}} ${${${var}}} ${added_${lower_var}} PARENT_SCOPE)")
 	endforeach()
+
+	set(DF_TARGET "nuttx" PARENT_SCOPE)
 
 endfunction()
 

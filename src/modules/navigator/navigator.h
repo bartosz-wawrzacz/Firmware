@@ -61,9 +61,12 @@
 #include "navigator_mode.h"
 #include "mission.h"
 #include "loiter.h"
+#include "takeoff.h"
+#include "land.h"
 #include "rtl.h"
 #include "datalinkloss.h"
 #include "enginefailure.h"
+#include "follow_target.h"
 #include "gpsfailure.h"
 #include "rcloss.h"
 #include "geofence.h"
@@ -71,7 +74,7 @@
 /**
  * Number of navigation modes that need on_active/on_inactive calls
  */
-#define NAVIGATOR_MODE_ARRAY_SIZE 7
+#define NAVIGATOR_MODE_ARRAY_SIZE 10
 
 class Navigator : public control::SuperBlock
 {
@@ -135,7 +138,7 @@ public:
 	struct vehicle_gps_position_s*	    get_gps_position() { return &_gps_pos; }
 	struct sensor_combined_s*	    get_sensor_combined() { return &_sensor_combined; }
 	struct home_position_s*		    get_home_position() { return &_home_pos; }
-	bool				    home_position_valid() { return _home_position_set; }
+	bool				    home_position_valid() { return (_home_pos.timestamp > 0); }
 	struct position_setpoint_triplet_s* get_position_setpoint_triplet() { return &_pos_sp_triplet; }
 	struct mission_result_s*	    get_mission_result() { return &_mission_result; }
 	struct geofence_result_s*		    get_geofence_result() { return &_geofence_result; }
@@ -155,6 +158,18 @@ public:
 	float		get_acceptance_radius();
 
 	/**
+	 * Get the cruising speed
+	 *
+	 * @return the desired cruising speed for this mission
+	 */
+	float		get_cruising_speed();
+
+	/**
+	 * Set the cruising speed
+	 */
+	void		set_cruising_speed(float speed=-1.0f) { _mission_cruising_speed = speed; }
+
+	/**
 	 * Get the acceptance radius given the mission item preset radius
 	 *
 	 * @param mission_item_radius the radius to use in case the controller-derived radius is smaller
@@ -162,16 +177,18 @@ public:
 	 * @return the distance at which the next waypoint should be used
 	 */
 	float		get_acceptance_radius(float mission_item_radius);
-	int		get_mavlink_fd() { return _mavlink_fd; }
+	orb_advert_t	*get_mavlink_log_pub() { return &_mavlink_log_pub; }
 
 	void		increment_mission_instance_count() { _mission_instance_count++; }
+
+	void 		set_mission_failure(const char *reason);
 
 private:
 
 	bool		_task_should_exit;		/**< if true, sensor task should exit */
 	int		_navigator_task;		/**< task handle for sensor task */
 
-	int		_mavlink_fd;			/**< the file descriptor to send messages over mavlink */
+	orb_advert_t	_mavlink_log_pub;		/**< the uORB advert to send messages over mavlink */
 
 	int		_global_pos_sub;		/**< global position subscription */
 	int		_gps_pos_sub;		/**< gps position subscription */
@@ -183,6 +200,7 @@ private:
 	int		_onboard_mission_sub;		/**< onboard mission subscription */
 	int		_offboard_mission_sub;		/**< offboard mission subscription */
 	int		_param_update_sub;		/**< param update subscription */
+	int		_vehicle_command_sub;		/**< vehicle commands (onboard and offboard) */
 
 	orb_advert_t	_pos_sp_triplet_pub;		/**< publish position setpoint triplet */
 	orb_advert_t	_mission_result_pub;
@@ -205,8 +223,6 @@ private:
 	geofence_result_s				_geofence_result;
 	vehicle_attitude_setpoint_s			_att_sp;
 
-	bool 		_home_position_set;
-
 	bool 		_mission_item_valid;		/**< flags if the current mission item is valid */
 	int		_mission_instance_count;	/**< instance count for the current mission */
 
@@ -217,9 +233,16 @@ private:
 
 	bool		_inside_fence;			/**< vehicle is inside fence */
 
+	bool		_can_loiter_at_sp;			/**< flags if current position SP can be used to loiter */
+	bool		_pos_sp_triplet_updated;		/**< flags if position SP triplet needs to be published */
+	bool 		_pos_sp_triplet_published_invalid_once;	/**< flags if position SP triplet has been published once to UORB */
+	bool		_mission_result_updated;		/**< flags if mission result has seen an update */
+
 	NavigatorMode	*_navigation_mode;		/**< abstract pointer to current navigation mode class */
 	Mission		_mission;			/**< class that handles the missions */
 	Loiter		_loiter;			/**< class that handles loiter */
+	Takeoff		_takeoff;			/**< class for handling takeoff commands */
+	Land		_land;			/**< class for handling land commands */
 	RTL 		_rtl;				/**< class that handles RTL */
 	RCLoss 		_rcLoss;				/**< class that handles RTL according to
 							  OBC rules (rc loss mode) */
@@ -228,17 +251,20 @@ private:
 							  (FW only!) */
 	GpsFailure	_gpsFailure;			/**< class that handles the OBC gpsfailure loss mode */
 
-	NavigatorMode *_navigation_mode_array[NAVIGATOR_MODE_ARRAY_SIZE];	/**< array of navigation modes */
+	FollowTarget _follow_target;
 
-	bool		_can_loiter_at_sp;			/**< flags if current position SP can be used to loiter */
-	bool		_pos_sp_triplet_updated;		/**< flags if position SP triplet needs to be published */
-	bool 		_pos_sp_triplet_published_invalid_once;	/**< flags if position SP triplet has been published once to UORB */
-	bool		_mission_result_updated;		/**< flags if mission result has seen an update */
+	NavigatorMode *_navigation_mode_array[NAVIGATOR_MODE_ARRAY_SIZE];	/**< array of navigation modes */
 
 	control::BlockParamFloat _param_loiter_radius;	/**< loiter radius for fixedwing */
 	control::BlockParamFloat _param_acceptance_radius;	/**< acceptance for takeoff */
 	control::BlockParamInt _param_datalinkloss_obc;	/**< if true: obc mode on data link loss enabled */
 	control::BlockParamInt _param_rcloss_obc;	/**< if true: obc mode on rc loss enabled */
+	
+	control::BlockParamFloat _param_cruising_speed_hover;
+	control::BlockParamFloat _param_cruising_speed_plane;
+
+	float _mission_cruising_speed;
+
 	/**
 	 * Retrieve global position
 	 */
@@ -257,7 +283,7 @@ private:
 	/**
 	 * Retrieve home position
 	 */
-	void		home_position_update();
+	void		home_position_update(bool force=false);
 
 	/**
 	 * Retreive navigation capabilities
