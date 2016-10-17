@@ -1,0 +1,4 @@
+#include <systemlib/param/param.h>
+
+PARAM_DEFINE_INT32(SATCOM_TIMEOUT, 0);
+PARAM_DEFINE_INT32(SATCOM_READINT, 0);
