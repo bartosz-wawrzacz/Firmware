@@ -6,28 +6,24 @@
 #include <drivers/device/device.h>
 #include <drivers/drv_hrt.h>
 
-typedef enum
-{
+typedef enum {
 	SATCOM_OK = 0,
 	SATCOM_NO_MSG = -1,
 	SATCOM_ERROR = -255,
 } satcom_status;
 
-typedef enum
-{
+typedef enum {
 	SATCOM_UART_OK = 0,
 	SATCOM_UART_OPEN_FAIL = -1,
 } satcom_uart_status;
 
-typedef enum
-{
+typedef enum {
 	SATCOM_READ_OK = 0,
 	SATCOM_READ_TIMEOUT = -1,
 	SATCOM_READ_PARSING_FAIL = -2,
 } satcom_read_status;
 
-typedef enum
-{
+typedef enum {
 	SATCOM_RESULT_OK,
 	SATCOM_RESULT_ERROR,
 	SATCOM_RESULT_SBDRING,
@@ -42,16 +38,22 @@ typedef enum
 //	uint8_t	result_code;
 //} satcom_at_msg;
 
+typedef enum {
+	SATCOM_STATE_STANDBY,
+	SATCOM_STATE_CSQ,
+	SATCOM_STATE_SBDSESSION,
+	SATCOM_STATE_TEST,
+} satcom_state;
+
 extern "C" __EXPORT int satcom_main(int argc, char *argv[]);
 
-#define SATCOM_TX_BUF_LEN	263		// TX buffer size - max mavlink packet length
-#define SATCOM_MAX_TX_MSG	3		// maximum number of messages in TX buffer
-#define SATCOM_RX_BUF_LEN	300		// RX message buffer size
+#define SATCOM_TX_BUF_LEN	300		// TX buffer size
+#define SATCOM_RX_BUF_LEN	300		// RX buffer size
 
 class satcom : public device::CDev
 {
 public:
-	static satcom* instance;
+	static satcom *instance;
 	static int task_handle;
 	bool task_should_exit = false;
 	int uart_fd = -1;
@@ -60,9 +62,31 @@ public:
 	static int param_read_interval_s;
 
 	uint8_t signal_quality = 0;
-	bool test_procedure_pending = false;
+	bool test_pending = false;
+	bool csq_pending = false;
 
 	char test_command[32];
+
+	uint8_t rx_buf[SATCOM_RX_BUF_LEN] = {0};
+	int rx_msg_len = 0;
+	int rx_msg_data_len = 0;
+	int rx_msg_read_idx = 0;
+	hrt_abstime time_counter = 0;
+	bool ring_pending = false;
+	bool tx_pending = false;
+	bool rx_pending = false;
+	satcom_state state = SATCOM_STATE_STANDBY;
+	satcom_state new_state = SATCOM_STATE_STANDBY;
+
+	// circular buffer
+	uint8_t tx_buf[SATCOM_TX_BUF_LEN] = {0};
+	int tx_buf_start_idx = 0;
+	int tx_buf_end_idx = 0;
+	int tx_buf_free = SATCOM_TX_BUF_LEN;
+
+	hrt_abstime last_read_time = 0;
+	pthread_mutex_t tx_buf_mutex = pthread_mutex_t();
+	bool verbose = false;
 
 	/*
 	 * Constructor
@@ -127,7 +151,7 @@ public:
 	/*
 	 * Send a Mobile-Originated SBD message
 	 */
-	int send_msg(uint8_t *msg, int msg_len, uint32_t timeout_ms);
+	void send_tx_buf();
 
 	/*
 	 * Try to receive a Mobile-Terminated SBD message
@@ -135,14 +159,26 @@ public:
 	satcom_status get_msg(uint32_t timeout_ms);
 
 	/*
+	 * Callback for message received
+	 */
+	void message_received(void);
+
+	/*
+	 * Perform a SBD session, sending the message from the MO buffer (if previously written)
+	 * and retreiving a MT message from the Iridium system (if there is one waiting)
+	 * This will also update the registration needed for SBD RING
+	 */
+	int sbd_session(void);
+
+	/*
 	 * Get the network signal strength
 	 */
-	int update_signal_quality(void);
+	void start_csq(void);
 
 	/*
 	 *
 	 */
-	satcom_result_code read_at(int timeout_ms);
+	satcom_result_code read_at(void);
 
 	/*
 	 *
@@ -150,9 +186,34 @@ public:
 	void schedule_test(void);
 
 	/*
+	 *
+	 */
+	void standby_loop(void);
+
+	/*
+	 *
+	 */
+	void csq_loop(void);
+
+	/*
+	 *
+	 */
+	void sbdsession_loop(void);
+
+	/*
+	 *
+	 */
+	void test_loop(void);
+
+	/*
 	 * TEST
 	 */
-	void test_procedure(void);
+	void start_test(void);
+
+	/*
+	 *
+	 */
+	void start_sbd_session(void);
 
 	/*
 	 * Checks if the modem responds to the "AT" command
@@ -160,24 +221,7 @@ public:
 	bool is_modem_ready(void);
 
 	/*
-	 * Send a AT command to the modem and wait for the response
+	 * Send a AT command to the modem
 	 */
-	satcom_result_code write_at(const char *command, int timeout_ms);
-
-//private:
-	//satcom_rx_msg rx_msg = satcom_rx_msg();
-	uint8_t rx_buf[SATCOM_RX_BUF_LEN] = {0};
-	int rx_msg_len = 0;
-	int rx_msg_data_len = 0;
-	int rx_msg_read_idx = 0;
-	hrt_abstime time_counter= 0;
-
-	uint8_t tx_buf[SATCOM_TX_BUF_LEN] = {0};
-	size_t tx_msg_len[SATCOM_MAX_TX_MSG] = {0};
-	uint8_t tx_msg_count = 0;
-	size_t tx_free = SATCOM_TX_BUF_LEN;
-
-	hrt_abstime last_read_time = 0;
-	pthread_mutex_t _tx_buffer_mutex = pthread_mutex_t();
-	bool verbose = false;
+	void write_at(const char *command);
 };
