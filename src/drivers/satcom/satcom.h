@@ -45,10 +45,15 @@ typedef enum {
 	SATCOM_STATE_TEST,
 } satcom_state;
 
+const char *satcom_state_string[4] = {"STANDBY", "SIGNAL CHECK", "SBD SESSION", "TEST"};
+
 extern "C" __EXPORT int satcom_main(int argc, char *argv[]);
 
-#define SATCOM_TX_BUF_LEN	300		// TX buffer size
-#define SATCOM_RX_BUF_LEN	300		// RX buffer size
+#define SATCOM_TX_BUF_LEN				340		// TX buffer size - maximum for a SBD MO message
+#define SATCOM_RX_MSG_BUF_LEN			300		// RX buffer size for MT messages
+#define SATCOM_RX_COMMAND_BUF_LEN		50		// RX buffer size for other commands
+#define SATCOM_TX_STACKING_TIME			3000000	// time to wait for additional mavlink messages, TODO make this a param
+#define SATCOM_SIGNAL_REFRESH_DELAY		5000000 // update signal quality every 5s
 
 class satcom : public device::CDev
 {
@@ -58,33 +63,36 @@ public:
 	bool task_should_exit = false;
 	int uart_fd = -1;
 
-	static int param_timeout_s;
-	static int param_read_interval_s;
+	int param_read_interval_s;
 
+	hrt_abstime last_signal_check = 0;
 	uint8_t signal_quality = 0;
+
 	bool test_pending = false;
-	bool csq_pending = false;
-
 	char test_command[32];
+	hrt_abstime test_timer = 0;
 
-	uint8_t rx_buf[SATCOM_RX_BUF_LEN] = {0};
-	int rx_msg_len = 0;
-	int rx_msg_data_len = 0;
+	uint8_t rx_command_buf[SATCOM_RX_COMMAND_BUF_LEN] = {0};
+	int rx_command_len = 0;
+
+	uint8_t rx_msg_buf[SATCOM_RX_MSG_BUF_LEN] = {0};
+	int rx_msg_end_idx = 0;
 	int rx_msg_read_idx = 0;
-	hrt_abstime time_counter = 0;
+
+	uint8_t tx_buf[SATCOM_TX_BUF_LEN] = {0};
+	int tx_buf_write_idx = 0;
+
 	bool ring_pending = false;
-	bool tx_pending = false;
-	bool rx_pending = false;
+	bool rx_session_pending = false;
+	bool rx_read_pending = false;
+	bool tx_session_pending = false;
+
+	hrt_abstime last_write_time = 0;
+	hrt_abstime last_read_time = 0;
+
 	satcom_state state = SATCOM_STATE_STANDBY;
 	satcom_state new_state = SATCOM_STATE_STANDBY;
 
-	// circular buffer
-	uint8_t tx_buf[SATCOM_TX_BUF_LEN] = {0};
-	int tx_buf_start_idx = 0;
-	int tx_buf_end_idx = 0;
-	int tx_buf_free = SATCOM_TX_BUF_LEN;
-
-	hrt_abstime last_read_time = 0;
 	pthread_mutex_t tx_buf_mutex = pthread_mutex_t();
 	bool verbose = false;
 
@@ -149,19 +157,19 @@ public:
 	satcom_uart_status open_uart(char *uart_name);
 
 	/*
-	 * Send a Mobile-Originated SBD message
+	 *
 	 */
-	void send_tx_buf();
+	void write_tx_buf();
 
 	/*
-	 * Try to receive a Mobile-Terminated SBD message
+	 *
 	 */
-	satcom_status get_msg(uint32_t timeout_ms);
+	void read_rx_buf();
 
 	/*
-	 * Callback for message received
+	 *
 	 */
-	void message_received(void);
+	bool clear_mo_buffer();
 
 	/*
 	 * Perform a SBD session, sending the message from the MO buffer (if previously written)
@@ -178,7 +186,17 @@ public:
 	/*
 	 *
 	 */
-	satcom_result_code read_at(void);
+	satcom_result_code read_at_command();
+
+	/*
+	 *
+	 */
+	satcom_result_code read_at_msg();
+
+	/*
+	 *
+	 */
+	satcom_result_code read_at(uint8_t *rx_buf, int *rx_len);
 
 	/*
 	 *

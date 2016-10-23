@@ -24,9 +24,6 @@ static const int ERROR = -1;
 satcom *satcom::instance;
 int satcom::task_handle;
 
-int satcom::param_timeout_s;
-int satcom::param_read_interval_s;
-
 satcom::satcom():
 	CDev("satcom", SATCOM_DEVICE_PATH)
 {}
@@ -59,10 +56,11 @@ int satcom::stop()
 
 	satcom::instance->task_should_exit = true;
 
-	// give it enough time to stop
-	param_timeout_s = 10;
+//	// give it enough time to stop
+//	param_timeout_s = 10;
 
-	for (int i = 0; (i < param_timeout_s + 1) && (satcom::task_handle != -1); i++) {
+	// TODO
+	for (int i = 0; (i < 10 + 1) && (satcom::task_handle != -1); i++) {
 		sleep(1);
 	}
 
@@ -89,9 +87,9 @@ void satcom::status()
 	}
 
 	warnx("started");
-	warnx("state %d", instance->state);
+	warnx("state: %s", satcom_state_string[instance->state]);
 
-	warnx("TX: S: %d E: %d F: %d", instance->tx_buf_start_idx, instance->tx_buf_end_idx, instance->tx_buf_free);
+	warnx("TX buf written: %d", instance->tx_buf_write_idx);
 }
 
 void satcom::test(int argc, char *argv[])
@@ -102,7 +100,7 @@ void satcom::test(int argc, char *argv[])
 	}
 
 	if (instance->state != SATCOM_STATE_STANDBY || instance->test_pending) {
-		warnx("test already running");
+		warnx("MODEM BUSY!");
 		return;
 	}
 
@@ -164,13 +162,6 @@ void satcom::main_loop(int argc, char *argv[])
 
 	param_t param_pointer;
 
-	param_pointer = param_find("SATCOM_TIMEOUT");
-	param_get(param_pointer, &param_timeout_s);
-
-	if (param_timeout_s == -1) {
-		param_timeout_s = 30;
-	}
-
 	param_pointer = param_find("SATCOM_READINT");
 	param_get(param_pointer, &param_read_interval_s);
 
@@ -178,7 +169,7 @@ void satcom::main_loop(int argc, char *argv[])
 		param_read_interval_s = 10;
 	}
 
-	if (verbose) { warnx("timeout %d read interval %d", param_timeout_s, param_read_interval_s); }
+	if (verbose) { warnx("read interval %d", param_read_interval_s); }
 
 	while (!task_should_exit) {
 		switch (state) {
@@ -200,88 +191,13 @@ void satcom::main_loop(int argc, char *argv[])
 		}
 
 		if (new_state != state) {
-			if(verbose) { warnx("SWITCHING STATE FROM %d TO %d", state, new_state); }
+			if (verbose) { warnx("SWITCHING STATE FROM %s TO %s", satcom_state_string[state], satcom_state_string[new_state]); }
+
 			state = new_state;
+
 		} else {
 			usleep(100000);	// 100ms
 		}
-
-
-//		bool write_pending = tx_msg_count > 0;
-//		// only try to get a new msg if the previous was read by the upper layer
-//		bool read_pending = (rx_msg_read_idx == rx_msg_len) &&
-//				    (hrt_absolute_time() - last_read_time > (uint64_t)param_read_interval_s * 1000000);
-//
-//		if (!(write_pending || read_pending || test_procedure_pending)) {
-//			continue;
-//		}
-
-//		if(update_signal_quality() != SATCOM_OK)
-//		{
-//			warnx("signal strength fail");
-//			continue;
-//		}
-
-//		test_procedure_pending = false;
-
-		//warnx("sig %d net %d", signal_strength, network_status);
-
-//		if(signal_strength >= 1 && network_status == 1)
-//		{
-//			if(write_pending)
-//			{
-//				//warnx("writing...");
-//				size_t len = tx_msg_len[0];
-//
-//				satcom_status ret = send_tx_buf(tx_buf, len, param_timeout_s * 1000);
-//
-//				if(ret == SATCOM_OK)
-//				{
-//					pthread_mutex_lock(&tx_buf_mutex);
-//
-//					memmove(tx_buf, tx_buf + len, SATCOM_TX_BUF_LEN - len - tx_buf_free);
-//					memmove(tx_msg_len, tx_msg_len + 1, 4 * (SATCOM_MAX_TX_MSG - 1));
-//					tx_buf_free += len;
-//
-//					tx_msg_count--;
-//
-//					pthread_mutex_unlock(&tx_buf_mutex);
-//					//warnx("... writing done");
-//				}
-//				else
-//				{
-//					//warnx("... write failed");
-//				}
-//			}
-
-//			if(read_pending && !task_should_exit)
-//			{
-//				//warnx("reading...");
-//
-//				satcom_status ret = get_msg(param_timeout_s * 1000);
-//
-//				if(ret == SATCOM_OK)
-//				{
-//					last_read_time = hrt_absolute_time();
-//
-//					rx_msg_len = 0;					// in case poll comes just now
-//					rx_msg_read_idx = 0;
-//					rx_msg_len = rx_msg.data_len;
-//
-//					poll_notify(POLLIN);
-//					//warnx("... reading done");
-//				}
-//				else if(ret == SATCOM_NO_MSG)
-//				{
-//					last_read_time = hrt_absolute_time();
-//					//warnx("... reading done, no msg");
-//				}
-//				else
-//				{
-//					//warnx("... read failed");
-//				}
-//			}
-//		}
 	}
 }
 
@@ -290,67 +206,75 @@ void satcom::standby_loop(void)
 	if (test_pending) {
 		test_pending = false;
 
-		if (!strcmp(test_command, "csq")) {
-			csq_pending = true;
-		} else if (!strcmp(test_command, "send")) {
+		if (!strcmp(test_command, "s")) {
 			write(0, "kreczmer", 8);
-			return;
+
+		} else if (!strcmp(test_command, "ss")) {
+			write(0, "kreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmerkreczmer!!!!!!", 100);
+
+		} else if (!strcmp(test_command, "read")) {
+			rx_session_pending = true;
+
 		} else {
-			time_counter = hrt_absolute_time();
+			test_timer = hrt_absolute_time();
 			start_test();
-		}
-	}
-
-	if(tx_buf_free != SATCOM_TX_BUF_LEN) {
-		send_tx_buf();
-	}
-
-	if(tx_pending || rx_pending) {
-		if(1) { //if(signal_quality > 0) {
-			start_sbd_session();
 			return;
-		} else {
-			csq_pending = true;
 		}
 	}
 
-	if(csq_pending) {
-		start_csq();
-		return;
+	// check for incoming SBDRING, handled inside read_at_command()
+	read_at_command();
+
+	if (param_read_interval_s != 0 && (hrt_absolute_time() - last_read_time) / 1000000 > param_read_interval_s) {
+		rx_session_pending = true;
 	}
 
-	int res = read_at();
+	if ((tx_buf_write_idx > 0) && (hrt_absolute_time() - last_write_time > SATCOM_TX_STACKING_TIME)) {
+		write_tx_buf();
+	}
 
-	if(res == SATCOM_RESULT_SBDRING) {
-		// got a ring alert, MT message waiting for download
-		ring_pending = true;
-		rx_pending = true;
+	if ((tx_session_pending || rx_session_pending) && !rx_read_pending) {
+		if (hrt_absolute_time() - last_signal_check < SATCOM_SIGNAL_REFRESH_DELAY && signal_quality > 0) {
+			start_sbd_session();
+
+		} else {
+			start_csq();
+		}
+	}
+
+	// only read the MT buffer if the higher layer (mavlink app) read the previous message
+	if (rx_read_pending && (rx_msg_read_idx == rx_msg_end_idx)) {
+		read_rx_buf();
 	}
 }
 
 void satcom::csq_loop(void)
 {
-	int res = read_at();
+	int res = read_at_command();
 
 	if (res == SATCOM_RESULT_NA) {
 		return;
 	}
 
-	if(res != SATCOM_RESULT_OK){
-		if (verbose){ warnx("UPDATE SIGNAL QUALITY: ERROR"); }
+	if (res != SATCOM_RESULT_OK) {
+		if (verbose) { warnx("UPDATE SIGNAL QUALITY: ERROR"); }
+
 		new_state = SATCOM_STATE_STANDBY;
 		return;
 	}
 
-	if (strncmp((const char *)rx_buf, "+CSQ:", 5)) {
+	if (strncmp((const char *)rx_command_buf, "+CSQ:", 5)) {
 		if (verbose) { warnx("UPDATE SIGNAL QUALITY: WRONG ANSWER:"); }
-		if (verbose) { warnx("%s", rx_buf); }
+
+		if (verbose) { warnx("%s", rx_command_buf); }
+
 		new_state = SATCOM_STATE_STANDBY;
 		return;
 	}
 
-	signal_quality = rx_buf[5] - 48;
-	csq_pending = false;
+	signal_quality = rx_command_buf[5] - 48;
+	//signal_check_pending = false;
+	last_signal_check = hrt_absolute_time();
 
 	if (verbose) { warnx("SIGNAL QUALITY: %d", signal_quality); }
 
@@ -359,29 +283,33 @@ void satcom::csq_loop(void)
 
 void satcom::sbdsession_loop(void)
 {
-	int res = read_at();
+	int res = read_at_command();
 
 	if (res == SATCOM_RESULT_NA) {
 		return;
 	}
 
-	if(res != SATCOM_RESULT_OK){
-		if (verbose){ warnx("SBD SESSION: ERROR"); }
-		if (verbose){ warnx("SBD SESSION: RESULT %d", res); }
+	if (res != SATCOM_RESULT_OK) {
+		if (verbose) { warnx("SBD SESSION: ERROR"); }
+
+		if (verbose) { warnx("SBD SESSION: RESULT %d", res); }
+
 		new_state = SATCOM_STATE_STANDBY;
 		return;
 	}
 
-	if (strncmp((const char*)rx_buf, "+SBDIX:", 7)){
+	if (strncmp((const char *)rx_command_buf, "+SBDIX:", 7)) {
 		if (verbose) { warnx("SBD SESSION: WRONG ANSWER:"); }
-		if (verbose) { warnx("%s", rx_buf); }
+
+		if (verbose) { warnx("%s", rx_command_buf); }
+
 		new_state = SATCOM_STATE_STANDBY;
 		return;
 	}
 
 	int mo_status, mt_status, mt_len, mt_queued;
-	const char *p = (const char*)rx_buf + 7;
-	char **rx_buf_parse = (char**)&p;
+	const char *p = (const char *)rx_command_buf + 7;
+	char **rx_buf_parse = (char **)&p;
 
 	mo_status = strtol(*rx_buf_parse, rx_buf_parse, 10);
 	(*rx_buf_parse)++;
@@ -397,30 +325,35 @@ void satcom::sbdsession_loop(void)
 
 	if (verbose) { warnx("MO ST: %d, MT ST: %d, MT LEN: %d, MT QUEUED: %d", mo_status, mt_status, mt_len, mt_queued); }
 
-	switch(mo_status){
+	switch (mo_status) {
 	case 0:
 	case 2:
 	case 3:
 	case 4:
 		if (verbose) { warnx("SBD SESSION: SUCCESS"); }
+
 		ring_pending = false;
-		tx_pending = false;
-		rx_pending = false;
+		rx_session_pending = false;
+		tx_session_pending = false;
+		last_read_time = hrt_absolute_time();
+
 		if (mt_len > 0) {
-			// read the message here
-			void message_received(void);
+			rx_read_pending = true;
 		}
+
 		break;
 
 	case 1:
 		if (verbose) { warnx("SBD SESSION: MO SUCCESS, MT FAIL"); }
-		tx_pending = false;
+
+		tx_session_pending = false;
 		break;
 
 	case 32:
 		if (verbose) { warnx("SBD SESSION: NO NETWORK SIGNAL"); }
-		warnx("ASSUMING MSG SENT FOR SIMULATION");	// TODO REMOVE
-		tx_pending = false;							// TODO REMOVE
+
+		signal_quality = 0;
+
 		break;
 
 	default:
@@ -432,30 +365,29 @@ void satcom::sbdsession_loop(void)
 
 void satcom::test_loop(void)
 {
-	int res = read_at();
-	if(res != SATCOM_RESULT_NA){
-		warnx("TEST RESULT: %d, LENGTH %d\nDATA:\n%s", res, rx_msg_len, rx_buf);
-		warnx("TEST DONE, TOOK %lld MS", (hrt_absolute_time() - time_counter)/1000);
+	int res = read_at_command();
+
+	if (res != SATCOM_RESULT_NA) {
+		warnx("TEST RESULT: %d, LENGTH %d\nDATA:\n%s", res, rx_command_len, rx_command_buf);
+		warnx("TEST DONE, TOOK %lld MS", (hrt_absolute_time() - test_timer) / 1000);
 		new_state = SATCOM_STATE_STANDBY;
 	}
 }
 
 ssize_t satcom::write(struct file *filp, const char *buffer, size_t buflen)
 {
-	warnx("write");
+	if (verbose) { warnx("WRITE: LEN %d, TX WRITTEN: %d", buflen, tx_buf_write_idx); }
 
-	if (buflen > tx_buf_free) {
+	if (buflen > SATCOM_TX_BUF_LEN - tx_buf_write_idx) {
 		return 0;
 	}
 
 	pthread_mutex_lock(&tx_buf_mutex);
 
-	for(int i = 0; i < buflen; i++){
-		tx_buf[tx_buf_end_idx] = buffer[i];
-		tx_buf_end_idx = (tx_buf_end_idx + 1) % SATCOM_TX_BUF_LEN;
-	}
+	memcpy(tx_buf, buffer, buflen);
 
-	tx_buf_free -= buflen;
+	tx_buf_write_idx += buflen;
+	last_write_time = hrt_absolute_time();
 
 	pthread_mutex_unlock(&tx_buf_mutex);
 
@@ -464,14 +396,14 @@ ssize_t satcom::write(struct file *filp, const char *buffer, size_t buflen)
 
 ssize_t satcom::read(struct file *filp, char *buffer, size_t buflen)
 {
-	if (rx_msg_read_idx < rx_msg_len) {
-		size_t bytes_to_copy = rx_msg_len - rx_msg_read_idx;
+	if (rx_msg_read_idx < rx_msg_end_idx) {
+		size_t bytes_to_copy = rx_msg_end_idx - rx_msg_read_idx;
 
 		if (bytes_to_copy > buflen) {
 			bytes_to_copy = buflen;
 		}
 
-//		memcpy(buffer, &rx_msg.data[rx_msg_read_idx], bytes_to_copy);
+		memcpy(buffer, &rx_msg_buf[rx_msg_read_idx], bytes_to_copy);
 
 		rx_msg_read_idx += bytes_to_copy;
 
@@ -489,7 +421,7 @@ int satcom::ioctl(struct file *filp, int cmd, unsigned long arg)
 
 pollevent_t satcom::poll_state(struct file *filp)
 {
-	if (rx_msg_read_idx < rx_msg_len) {
+	if (rx_msg_read_idx < rx_msg_end_idx) {
 		return POLLIN;
 
 	} else {
@@ -497,78 +429,117 @@ pollevent_t satcom::poll_state(struct file *filp)
 	}
 }
 
-void satcom::send_tx_buf()
+void satcom::write_tx_buf()
 {
 	if (!is_modem_ready()) {
 		if (verbose) { warnx("SEND SBD: MODEM NOT READY!"); }
+
 		return;
 	}
 
 	pthread_mutex_lock(&tx_buf_mutex);
 
-	int msg_len = SATCOM_TX_BUF_LEN - tx_buf_free;
-	int s_idx = tx_buf_start_idx;
-
 	char command[13];
-	sprintf(command, "AT+SBDWB=%d", msg_len);
+	sprintf(command, "AT+SBDWB=%d", tx_buf_write_idx);
 	write_at(command);
 
-	if (read_at() != SATCOM_RESULT_READY) {
+	if (read_at_command() != SATCOM_RESULT_READY) {
 		if (verbose) { warnx("SEND SBD: MODEM NOT RESPONDING!"); }
+
 		return;
 	}
 
 	int sum = 0;
 
-	warnx("WRITING TO MODEM:");
+	int written = 0;
 
-	while(s_idx != tx_buf_end_idx){
-		::write(uart_fd, tx_buf + s_idx, 1);
-		sum += *(tx_buf + s_idx);
-		printf("%c ", *(tx_buf + s_idx));
-		s_idx = (s_idx + 1) % SATCOM_TX_BUF_LEN;
+	while (written != tx_buf_write_idx) {
+		written += ::write(uart_fd, tx_buf + written, tx_buf_write_idx - written);
 	}
 
-	printf("\n");
+	for (int i = 0; i < tx_buf_write_idx; i++) {
+		sum += tx_buf[i];
+	}
 
 	uint8_t checksum[2] = {(uint8_t)(sum / 256), (uint8_t)(sum & 255)};
 	::write(uart_fd, checksum, 2);
 
-	if (read_at() != SATCOM_RESULT_OK) {
+	if (read_at_command() != SATCOM_RESULT_OK) {
 		if (verbose) { warnx("SEND SBD: ERROR WHILE WRITING DATA TO MODEM!"); }
+
 		pthread_mutex_unlock(&tx_buf_mutex);
 		return;
 	}
 
-	if (rx_buf[0] != '0') {
-		if (verbose) { warnx("SEND SBD: ERROR WHILE WRITING DATA TO MODEM! (%d)", rx_buf[0] - '0'); }
+	if (rx_command_buf[0] != '0') {
+		if (verbose) { warnx("SEND SBD: ERROR WHILE WRITING DATA TO MODEM! (%d)", rx_command_buf[0] - '0'); }
+
 		pthread_mutex_unlock(&tx_buf_mutex);
 		return;
 	}
 
-	warnx("WROTE DATA");
+	if (verbose) { warnx("SEND SBD: DATA WRITTEN TO MODEM"); }
 
-	tx_buf_start_idx = s_idx;
-	tx_buf_free += msg_len;
+	tx_buf_write_idx = 0;
 
 	pthread_mutex_unlock(&tx_buf_mutex);
 
-	tx_pending = true;
+	tx_session_pending = true;
 }
 
-void satcom::message_received(void)
+void satcom::read_rx_buf(void)
 {
-	if (verbose) { warnx("MESSAGE RECEIVED"); }
+	if (!is_modem_ready()) {
+		if (verbose) { warnx("READ SBD: MODEM NOT READY!"); }
+
+		return;
+	}
+
+	write_at("AT+SBDRB");
+
+	if (read_at_msg() != SATCOM_RESULT_OK) {
+		if (verbose) { warnx("READ SBD: MODEM NOT RESPONDING!"); }
+
+		return;
+	}
+
+	int data_len = (rx_msg_buf[0] << 8) + rx_msg_buf[1];
+
+	// rx_buf contains 2 byte lenght, data, 2 byte checksum and /r/n delimiter
+	if (data_len != rx_msg_end_idx - 6) {
+		if (verbose) { warnx("READ SBD: WRONG DATA LENGTH"); }
+
+		return;
+	}
+
+	int checksum = 0;
+
+	for (int i = 2; i < data_len + 2; i++) {
+		checksum += rx_msg_buf[i];
+	}
+
+	if ((checksum / 256 != rx_msg_buf[rx_msg_end_idx - 4]) || ((checksum & 255) != rx_msg_buf[rx_msg_end_idx - 3])) {
+		if (verbose) { warnx("READ SBD: WRONG DATA CHECKSUM"); }
+
+		return;
+	}
+
+	rx_msg_read_idx = 2;	// ignore the length
+	rx_msg_end_idx -= 4;	// ignore the checksum and delimiter
+	rx_read_pending = false;
+
+	if (verbose) { warnx("READ SBD: SUCCESS, LEN: %d", data_len); }
 }
 
-satcom_status satcom::get_msg(uint32_t timeout_ms)
+boll satcom::clear_mo_buffer()
 {
-	return SATCOM_OK;
+	// TODO
+	return true;
 }
 
 void satcom::start_csq(void)
 {
-	if(verbose) { warnx("UPDATING SIGNAL QUALITY"); }
+	if (verbose) { warnx("UPDATING SIGNAL QUALITY"); }
 
 	if (!is_modem_ready()) {
 		if (verbose) { warnx("UPDATE SIGNAL QUALITY: MODEM NOT READY!"); }
@@ -582,7 +553,7 @@ void satcom::start_csq(void)
 
 void satcom::start_sbd_session(void)
 {
-	if(verbose) { warnx("STARTING SBD SESSION"); }
+	if (verbose) { warnx("STARTING SBD SESSION"); }
 
 	if (!is_modem_ready()) {
 		if (verbose) { warnx("SBD SESSION: MODEM NOT READY!"); }
@@ -590,8 +561,9 @@ void satcom::start_sbd_session(void)
 		return;
 	}
 
-	if(ring_pending){
+	if (ring_pending) {
 		write_at("AT+SBDIXA");
+
 	} else {
 		write_at("AT+SBDIX");
 	}
@@ -601,20 +573,20 @@ void satcom::start_sbd_session(void)
 
 void satcom::start_test(void)
 {
-	int res = read_at();
+	int res = read_at_command();
 
 	if (res != SATCOM_RESULT_NA) {
 		warnx("SOMETHING WAS IN BUFFER");
-		printf("TEST RESULT: %d, LENGTH %d\nDATA:\n%s\nRAW DATA:\n", res, rx_msg_len, rx_buf);
+		printf("TEST RESULT: %d, LENGTH %d\nDATA:\n%s\nRAW DATA:\n", res, rx_command_len, rx_command_buf);
 
-		for (int i = 0; i < rx_msg_len; i++) {
-			printf("%d ", rx_buf[i]);
+		for (int i = 0; i < rx_command_len; i++) {
+			printf("%d ", rx_command_buf[i]);
 		}
 
 		printf("\n");
 	}
 
-	if(!is_modem_ready()){
+	if (!is_modem_ready()) {
 		warnx("MODEM NOT READY!");
 		return;
 	}
@@ -623,6 +595,7 @@ void satcom::start_test(void)
 		warnx("TEST %s", test_command);
 		write_at(test_command);
 		new_state = SATCOM_STATE_TEST;
+
 	} else {
 		warnx("TEST DONE");
 	}
@@ -655,7 +628,7 @@ bool satcom::is_modem_ready(void)
 {
 	write_at("AT");
 
-	if (read_at() == SATCOM_RESULT_OK) {
+	if (read_at_command() == SATCOM_RESULT_OK) {
 		return true;
 
 	} else {
@@ -671,7 +644,17 @@ void satcom::write_at(const char *command)
 	::write(uart_fd, "\r", 1);
 }
 
-satcom_result_code satcom::read_at(void)
+satcom_result_code satcom::read_at_command()
+{
+	return read_at(rx_command_buf, &rx_command_len);
+}
+
+satcom_result_code satcom::read_at_msg()
+{
+	return read_at(rx_msg_buf, &rx_msg_end_idx);
+}
+
+satcom_result_code satcom::read_at(uint8_t *rx_buf, int *rx_len)
 {
 	struct pollfd fds[1];
 	fds[0].fd = uart_fd;
@@ -680,10 +663,10 @@ satcom_result_code satcom::read_at(void)
 	uint8_t buf = 0;
 	int last_rn_idx = 0;
 	int rx_buf_pos = 0;
-	rx_msg_len = 0;
+	*rx_len = 0;
 
 	while (1) {
-		if (::poll(&fds[0], 1, 10) > 0) {
+		if (::poll(&fds[0], 1, 100) > 0) {
 			if (::read(uart_fd, &buf, 1) > 0) {
 				if (rx_buf_pos == 0 && (buf == '\r' || buf == '\n')) {
 					// ignore the leading \r\n
@@ -697,23 +680,29 @@ satcom_result_code satcom::read_at(void)
 					if (rx_buf_pos == last_rn_idx + 2)
 						; // second in a row, ignore it
 					else if (!strncmp((const char *)&rx_buf[last_rn_idx], "OK\r\n", 4)) {
-						rx_buf[rx_msg_len] = 0; 	// null terminator after the information response for printing purposes
+						rx_buf[*rx_len] = 0; 	// null terminator after the information response for printing purposes
 						return SATCOM_RESULT_OK;
 
 					} else if (!strncmp((const char *)&rx_buf[last_rn_idx], "ERROR\r\n", 7)) {
 						return SATCOM_RESULT_ERROR;
 
 					} else if (!strncmp((const char *)&rx_buf[last_rn_idx], "SBDRING\r\n", 9)) {
+						ring_pending = true;
+						rx_session_pending = true;
+
+						if (verbose) { warnx("GET SBDRING");}
+
 						return SATCOM_RESULT_SBDRING;
 
 					} else if (!strncmp((const char *)&rx_buf[last_rn_idx], "READY\r\n", 7)) {
 						return SATCOM_RESULT_READY;
 
 					} else if (!strncmp((const char *)&rx_buf[last_rn_idx], "HARDWARE FAILURE", 16)) {
+						warnx("HARDWARE FAILURE!");
 						return SATCOM_RESULT_HWFAIL;
 
 					} else {
-						rx_msg_len = rx_buf_pos;	// that was the information response, result code incoming
+						*rx_len = rx_buf_pos;	// that was the information response, result code incoming
 					}
 
 					last_rn_idx = rx_buf_pos;
