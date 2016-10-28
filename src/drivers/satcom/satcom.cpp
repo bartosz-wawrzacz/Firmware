@@ -203,6 +203,7 @@ void satcom::main_loop(int argc, char *argv[])
 
 void satcom::standby_loop(void)
 {
+	// TODO probably remove this later
 	if (test_pending) {
 		test_pending = false;
 
@@ -229,13 +230,23 @@ void satcom::standby_loop(void)
 		rx_session_pending = true;
 	}
 
+	// write the MO buffer when the message stacking time expires
 	if ((tx_buf_write_idx > 0) && (hrt_absolute_time() - last_write_time > SATCOM_TX_STACKING_TIME)) {
 		write_tx_buf();
 	}
 
+	// do not start a SBD session if there is still data in the MT buffer, or it will be lost
 	if ((tx_session_pending || rx_session_pending) && !rx_read_pending) {
 		if (hrt_absolute_time() - last_signal_check < SATCOM_SIGNAL_REFRESH_DELAY && signal_quality > 0) {
-			start_sbd_session();
+			// clear the MO buffer if we only want to read a message
+			if (rx_session_pending && !tx_session_pending) {
+				if (clear_mo_buffer()) {
+					start_sbd_session();
+				}
+
+			} else {
+				start_sbd_session();
+			}
 
 		} else {
 			start_csq();
@@ -531,9 +542,16 @@ void satcom::read_rx_buf(void)
 	if (verbose) { warnx("READ SBD: SUCCESS, LEN: %d", data_len); }
 }
 
-boll satcom::clear_mo_buffer()
+bool satcom::clear_mo_buffer()
 {
-	// TODO
+	write_at("AT+SBDD0");
+
+	if (read_at_command() != SATCOM_RESULT_OK || rx_command_buf[0] != '0') {
+		if (verbose) { warnx("CLEAR MO BUFFER: ERROR"); }
+
+		return false;
+	}
+
 	return true;
 }
 
